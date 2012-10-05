@@ -1,0 +1,37 @@
+DirectoryIndex index.html
+FileETag none
+AddDefaultCharset UTF-8
+AddType image/vnd.microsoft.icon ico
+
+# Historic URL redirecting.
+
+# Bad link redirecting.
+
+# Magic starts here.
+RewriteEngine On
+
+# Force the hostname to be "hardiff.co.uk".
+RewriteCond %{HTTP_HOST} !^hardiff.co.uk$
+RewriteCond %{ENV:REDIRECT_STATUS} ^$
+RewriteRule ^.*$ http://hardiff.co.uk/$0 [R=301,L]
+
+# Remove any unnecessary file extensions.
+RewriteCond %{ENV:REDIRECT_STATUS} ^$
+RewriteRule ^(.*)\.(cps|pl|html)$ http://hardiff.co.uk/$1 [R=301,L]
+
+# Map URLs to files as mod_mime would normally do.
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.pl -f
+RewriteRule ^.*$ /$0.pl
+
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.html -f
+RewriteRule ^.*$ /$0.html
+
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME}.png -f
+RewriteRule ^.*$ /$0.png
+
+#RewriteCond %{REQUEST_URI} !testout
+#RewriteCond %{QUERY_STRING} testin
+#RewriteRule ^.*$ /testout?$_0=$0&REQUEST_URI=%{REQUEST_URI}&REQUEST_FILENAME=%{REQUEST_FILENAME}&PATH_INFO=%{PATH_INFO} [R,L]

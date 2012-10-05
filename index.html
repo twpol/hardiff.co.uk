@@ -1,0 +1,285 @@
+<!doctype html>
+<html>
+<head>
+	<title>HTTP Archive Difference tool</title>
+	<style>
+		html, body {
+			margin: 0;
+			padding: 0;
+			font-family: "Segoe UI", "Tahoma", sans-serif;
+		}
+		html, body {
+			height: 100%;
+		}
+		header, article, footer {
+			padding: 0.5em;
+		}
+		header {
+			background: #CCC;
+			height: 7.6em;
+		}
+		header > h1 {
+			margin: 0;
+		}
+		header > textarea {
+			width: -moz-calc(50% - 5em);
+			width: -webkit-calc(50% - 5em);
+			width: calc(50% - 5em);
+			height: 5.5em;
+			vertical-align: bottom;
+		}
+		header > button {
+			width: 8em;
+		}
+		article {
+			min-height: 100%;
+			min-height: -moz-calc(100% - 11.3em);
+			min-height: -webkit-calc(100% - 11.3em);
+			min-height: calc(100% - 11.3em);
+			white-space: nowrap;
+		}
+		article > p {
+			white-space: normal;
+		}
+		footer {
+			background: #CCC;
+			text-align: center;
+			font-size: 80%;
+			height: 1.2em;
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<h1>HTTP Archive (HAR) Difference tool</h1>
+		<textarea id="har1" rows="5" cols="50"></textarea>
+		<textarea id="har2" rows="5" cols="50"></textarea>
+		<button onclick="compare('#har1', '#har2')">Compare!</button>
+	</header>
+	<article>
+		<p>Paste <A href="http://www.softwareishard.com/blog/har-12-spec/">HTTP Archive (HAR)</a> files into one or both boxes above and click "Compare!".</p>
+		<p>Certain resource collapsing occurs in an attempt to deal with AJAX requests made by libraries like jQuery, but there is likely a lot of room for improvement.</p>
+		<p>Note: this tool was constructed for internal/private performance testing, so it is quite rough and ready.</p>
+	</article>
+	<footer>
+		&copy; 2012 <a href="http://james-ross.co.uk">James G. Ross</a> | Feedback to <a href="http://twitter.com/silver42">@silver42</a>
+	</footer>
+	<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+	<script>!window.jQuery && document.write('<script src="jquery-1.8.2.min.js"><\/script>');</script>
+	<script>
+		function iso8601(string) {
+			// BUG (Safari) Doesn't accept the ISO 8601 date/time format in the Date constructor.
+			//return new Date(string.substr(0, 23));
+			var m = string.match(/(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d).(\d+)/);
+			return new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6]);
+		}
+		function xmlToJSON(xml, recurse) {
+			var json = {};
+			var children = $(xml).children('*');
+			for (var i = 0; i < children.length; i++) {
+				if ($(children[i]).children().length == 0) {
+					json[children[i].localName] = children[i].textContent;
+				} else if (recurse) {
+					json[children[i].localName] = xmlToJSON(children[i], recurse);
+				}
+			}
+			return json;
+		}
+		function parseHAR(string) {
+			if (/<log/.test(string)) {
+				var xml = $.parseXML(string);
+				var rv = {log:{entries:[]}};
+				var entries = $(xml).find('log > entries > entry');
+				for (var i = 0; i < entries.length; i++) {
+					var entry = xmlToJSON(entries[i]);
+					entry.request = xmlToJSON($(entries[i]).children('request'));
+					entry.response = xmlToJSON($(entries[i]).children('response'));
+					entry.timings = xmlToJSON($(entries[i]).children('timings'));
+					rv.log.entries.push(entry);
+				}
+				return rv;
+			}
+			if (string) {
+				return JSON.parse(string);
+			}
+			return {log:{entries:[]}};
+		}
+		function compare(har1, har2) {
+			//try {
+				var har1d = parseHAR($(har1).val());
+				var har2d = JSON.parse($(har2).val() || '{"log":{"entries":[]}}');
+				
+				var report = [];
+				var config = {
+					timelineScale: 20, timelineVScale: 5, hostConnectionBusy: 4,
+					colourTransferBlocking: '#DCA', colourTransferResolving: '#5AB', colourTransferConnecting: '#9D3',
+					colourTransferSending: '#D98', colourTransferWaiting: '#87C', colourTransferReceiving: '#BBB',
+					colourContentDiff: '#88F'
+				};
+				
+				var urls = {}, urlPaths1 = {}, urlPaths2 = {};
+				[{i:1, har:har1d, urlPaths:urlPaths1, startTime:har1d.log.entries.length?iso8601(har1d.log.entries[0].startedDateTime):0},
+				 {i:2, har:har2d, urlPaths:urlPaths2, startTime:har2d.log.entries.length?iso8601(har2d.log.entries[0].startedDateTime):0}].forEach(function(q) {
+					for (var i = 0; i < q.har.log.entries.length; i++) {
+						var entry = q.har.log.entries[i];
+						var url = entry.request.url.replace(/#.*$/, '').replace(/\?.*$/, '');
+						if (/^(http|https|file):/.test(url)) {
+							q.urlPaths[url] = q.urlPaths[url] || [];
+							q.urlPaths[url].push(entry.request.url);
+						}
+						var url = entry.request.url.replace(/([?&])_=\d{13}/, '$1_jquery_nocache_').replace(/([?&])\w+=jQuery\d{20}_\d{13}/, '$1_jquery_callback_');
+						if (urls[url] && urls[url]['timings' + q.i]) continue;
+						var s = iso8601(entry.startedDateTime) - q.startTime;
+						if (s < 0) console.log(q.startTime + '/' + iso8601(entry.startedDateTime) + ' (' + entry.startedDateTime + ')');
+						var st = s + Math.max(0, entry.timings.blocked || 0);
+						var et = s + Number(entry.time);
+						urls[url] = urls[url] || { fileName: url.match(/[^\/]*$/) || url.match(/[^\/]*\/$/), startTime: st, finishTime: et, time: et - st, timings: entry.timings, size: entry.response.bodySize };
+						urls[url]['startTime' + q.i] = st;
+						urls[url]['finishTime' + q.i] = et;
+						urls[url]['time' + q.i] = et - st;
+						urls[url]['timings' + q.i] = entry.timings;
+						urls[url]['size' + q.i] = entry.response.bodySize;
+					}
+				});
+				var urlList = [];
+				for (var url in urls) {
+					urls[url].url = url;
+					urlList.push(urls[url]);
+				}
+				
+				report.push('<p>Data summary:</p>');
+				report.push('<ul>');
+				[har1d.log.entries.length?har1d.log:null,har2d.log.entries.length?har2d.log:null].forEach(function(l, i) {
+					if (l) {
+						report.push('<li><strong>' + ['A', 'B'][i] + '</strong> ' + l.entries.length + ' requests recorded by ' + l.creator.name + '</li>');
+					}
+				});
+				report.push('</ul>');
+				
+				if (har1d.log.entries.length && har2d.log.entries.length) {
+					report.push('<p>Unique URLs:</p>');
+					report.push('<ul>');
+					[{a:'timings1', b:'timings2', s:'A only'}, {a:'timings2', b:'timings1', s:'B only'}].forEach(function(q) {
+						for (var i = 0; i < urlList.length; i++) {
+							var entry = urlList[i];
+							if (entry[q.a] && !entry[q.b]) {
+								report.push('<li><strong>' + q.s + '</strong> ' + entry.url + '</li>');
+							}
+						}
+					});
+					report.push('</ul>');
+				}
+				
+				report.push('<p>Repeated paths with different URLs:</p>');
+				report.push('<ul>');
+				[urlPaths1, urlPaths2].forEach(function(urlPaths) {
+					for (var url in urlPaths) {
+						if (urlPaths[url].length > 1) {
+							report.push('<li><strong>' + urlPaths[url].length + ' times</strong> ' + url + '<ul>' + urlPaths[url].map(function(i) { return '<li>' + i + '</li>'; }).join('') + '</ul></li>');
+						}
+					}
+				});
+				report.push('</ul>');
+				
+				//urlList.sort(function(a, b) { var at = (a.startTime2 - a.startTime1) || 0; var bt = (b.startTime2 - b.startTime1) || 0; return at < bt ? -1 : at > bt ? 1 : 0; });
+				urlList.sort(function(a, b) { var at = a.startTime2 || a.startTime1 || 0; var bt = b.startTime2 || b.startTime1 || 0; return at < bt ? -1 : at > bt ? 1 : 0; });
+				
+				var entryNetLine = function entryNetLine(startTime, timings, height) {
+					var bt = Math.max(0, timings.blocked || 0);
+					var dt = Math.max(0, timings.dns || 0);
+					var ct = Math.max(0, timings.connect || 0);
+					var st = Math.max(0, timings.send || 0);
+					var wt = Math.max(0, timings.wait || 0);
+					var rt = Math.max(0, timings.receive || 0);
+					report.push('<div style="margin-left: ' + ((startTime - bt) / config.timelineScale) + 'px; background: ' + config.colourTransferBlocking + '; width: ' + (bt / config.timelineScale) + 'px; height: ' + height + 'em;"></div>');
+					report.push('<div style="margin-left: ' + (startTime / config.timelineScale) + 'px; background: ' + config.colourTransferResolving + '; width: ' + (dt / config.timelineScale) + 'px; height: ' + height + 'em; margin-top: -' + height + 'em;"></div>');
+					report.push('<div style="margin-left: ' + ((startTime + dt) / config.timelineScale) + 'px; background: ' + config.colourTransferConnecting + '; width: ' + (ct / config.timelineScale) + 'px; height: ' + height + 'em; margin-top: -' + height + 'em;"></div>');
+					report.push('<div style="margin-left: ' + ((startTime + dt + ct) / config.timelineScale) + 'px; background: ' + config.colourTransferSending + '; width: ' + (st / config.timelineScale) + 'px; height: ' + height + 'em; margin-top: -' + height + 'em;"></div>');
+					report.push('<div style="margin-left: ' + ((startTime + dt + ct + st) / config.timelineScale) + 'px; background: ' + config.colourTransferWaiting + '; width: ' + (wt / config.timelineScale) + 'px; height: ' + height + 'em; margin-top: -' + height + 'em;"></div>');
+					report.push('<div style="margin-left: ' + ((startTime + dt + ct + st + wt) / config.timelineScale) + 'px; background: ' + config.colourTransferReceiving + '; width: ' + (rt / config.timelineScale) + 'px; height: ' + height + 'em; margin-top: -' + height + 'em;"></div>');
+				};
+				if (har1d.log.entries.length && har2d.log.entries.length) {
+					report.push('<p>Timeline:</p>');
+					report.push('<div style="display: inline-block;">');
+					var finishTime = { a: 0, b: 0 };
+					for (var i = 0; i < urlList.length; i++) {
+						var entry = urlList[i];
+						if (entry.timings1)
+							finishTime.a = Math.max(finishTime.a, entry.finishTime1);
+						if (entry.timings2)
+							finishTime.b = Math.max(finishTime.b, entry.finishTime2);
+						if (entry.timings1 && entry.timings2) {
+							var st1 = Math.min(entry.startTime1, entry.startTime2);
+							var st2 = Math.max(entry.startTime1, entry.startTime2);
+							var ft1 = Math.min(entry.finishTime1, entry.finishTime2);
+							var ft2 = Math.max(entry.finishTime1, entry.finishTime2);
+							report.push('<div style="margin-top: -1px; margin-bottom: -1.4em; border-bottom: 1px solid ' + config.colourTransferReceiving + '; padding-left: ' + (ft2 / config.timelineScale) + 'px; height: 1.4em;' + (entry.size1 != entry.size2 ? ' color: ' + config.colourContentDiff + ';' : '') + '" title="');
+							report.push(entry.fileName + '\n');
+							report.push('Transfer ' + entry.startTime1 + 'ms to ' + entry.finishTime1 + 'ms (' + entry.time1 + 'ms), ' + entry.size1 + ' bytes.\n');
+							report.push('Transfer ' + entry.startTime2 + 'ms to ' + entry.finishTime2 + 'ms (' + entry.time2 + 'ms), ' + entry.size2 + ' bytes.\n');
+							report.push('Started ' + (entry.startTime2 - entry.startTime1) + 'ms, finished ' + (entry.finishTime2 - entry.finishTime1) + 'ms, took ' + (entry.time2 - entry.time1) + 'ms.\n');
+							report.push('">&nbsp;<strong>' + (entry.startTime2 - entry.startTime1) + 'ms/' + (entry.finishTime2 - entry.finishTime1) + 'ms</strong> ' + entry.url + '</div>');
+							entryNetLine(entry.startTime1, entry.timings1, 0.7);
+							entryNetLine(entry.startTime2, entry.timings2, 0.7);
+						}
+					}
+					report.push('</div>');
+					report.push('<p>Finish time change: <strong>' + (finishTime.b - finishTime.a) + 'ms</strong>.</p>');
+				} else {
+					report.push('<p>Timeline:</p>');
+					for (var i = 0; i < urlList.length; i++) {
+						var entry = urlList[i];
+						report.push('<div style="margin-top: -1px; margin-bottom: -1.4em; border-bottom: 1px solid ' + config.colourTransferReceiving + '; padding-left: ' + (entry.finishTime / config.timelineScale) + 'px; height: 1.4em;" title="');
+						report.push(entry.fileName + '\n');
+						report.push('Transfer ' + entry.startTime + 'ms to ' + entry.finishTime + 'ms (' + entry.time + 'ms), ' + entry.size + ' bytes.');
+						report.push('">&nbsp;<strong>' + entry.startTime + 'ms/' + entry.finishTime + 'ms</strong> ' + entry.url + '</div>');
+						entryNetLine(entry.startTime, entry.timings, 1.4);
+					}
+				}
+				
+				report.push('<p>Active Connections:</p>');
+				var hosts = {};
+				for (var i = 0; i < urlList.length; i++) {
+					var entry = urlList[i];
+					var host = (entry.url.match(/^(https?:\/\/.*?)\//i) || ['', ''])[1];
+					if (!hosts[host]) hosts[host] = {1: [], 2: []};
+					[1, 2].forEach(function(i) {
+						if (entry['timings' + i]) {
+							hosts[host][i].push({t: entry['startTime' + i], v:1});
+							hosts[host][i].push({t: entry['finishTime' + i], v:-1});
+						}
+					});
+				}
+				delete hosts[''];
+				report.push('<ul style="display: inline-block;">');
+				for (var host in hosts) {
+					report.push('<li><strong>' + host + '</strong>');
+					for (var j = 0; j < 2; j++) {
+						var lastt = 0, lastv = 0, time0 = 0, time1 = 0;
+						var hostData = hosts[host][j == 0 ? 1 : 2];
+						hostData.sort(function(a, b) { return a.t < b.t ? -1 : a.t > b.t ? 1 : 0; });
+						if (hostData.length) {
+							report.push('<div style="margin: ' + config.timelineVScale + 'px 0; border-bottom: ' + config.timelineVScale + 'px solid ' + config.colourTransferReceiving + '; width: ' + (hostData[hostData.length-1].t / config.timelineScale) + 'px;">');
+							for (var i = 0; i < hostData.length; i++) {
+								report.push('<div style="display: inline-block; vertical-align: bottom; width: ' + ((hostData[i].t - lastt) / config.timelineScale) + 'px; height: ' + (lastv * config.timelineVScale) + 'px; background: ' + (lastv < config.hostConnectionBusy ? config.colourTransferResolving : config.colourTransferConnecting) + ';"></div>');
+								if (lastv == 0) time0 += hostData[i].t - lastt;
+								else if (lastv >= config.hostConnectionBusy) time1 += hostData[i].t - lastt;
+								lastt = hostData[i].t;
+								lastv += hostData[i].v;
+							}
+							report.push('</div>');
+							report.push('<p>Idle for ' + time0 + 'ms (' + Math.round(100 * time0 / lastt) + '%), busy for ' + time1 + 'ms (' + Math.round(100 * time1 / lastt) + '%), total time ' + lastt + 'ms.</p>')
+						}
+					}
+					report.push('</li>');
+				}
+				report.push('</ul>');
+				
+				$('article').html(report.join(''));
+//			} catch (ex) {
+//				$('article').text('Exception: ' + ex.message);
+//			}
+		}
+	</script>
+</body>
+</html>
