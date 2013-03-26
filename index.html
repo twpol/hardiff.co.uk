@@ -105,9 +105,9 @@
 			return {log:{entries:[]}};
 		}
 		function compare(har1, har2) {
-			//try {
+			try {
 				var har1d = parseHAR($(har1).val());
-				var har2d = JSON.parse($(har2).val() || '{"log":{"entries":[]}}');
+				var har2d = JSON.parse($(har2).val() || '{"log":{"creator":{"name":""},"entries":[]}}');
 				
 				var report = [];
 				var config = {
@@ -147,11 +147,15 @@
 					urlList.push(urls[url]);
 				}
 				
+				var gaqLogs = 0, gaqLogNames = [], gaqLogEntries = [];
 				report.push('<p>Data summary:</p>');
 				report.push('<ul>');
 				[har1d.log.entries.length?har1d.log:null,har2d.log.entries.length?har2d.log:null].forEach(function(l, i) {
 					if (l) {
 						report.push('<li><strong>' + ['A', 'B'][i] + '</strong> ' + l.entries.length + ' requests recorded by ' + l.creator.name + '</li>');
+						gaqLogs++;
+						gaqLogNames.push(l.creator.name);
+						gaqLogEntries.push(l.entries.length);
 					}
 				});
 				report.push('</ul>');
@@ -276,10 +280,23 @@
 				report.push('</ul>');
 				
 				$('article').html(report.join(''));
-//			} catch (ex) {
-//				$('article').text('Exception: ' + ex.message);
-//			}
+				if (_gaq) _gaq.push(['_trackEvent', 'har', 'compare', 'Compare ' + gaqLogs + ' logs from ' + gaqLogNames.join(', ') + ' with ' + gaqLogEntries.join(', ') + ' entries']);
+			} catch (ex) {
+				$('article').text('Exception: ' + ex.message);
+				if (_gaq) _gaq.push(['_trackEvent', 'har', 'error', ex.message]);
+			}
 		}
+	</script>
+	<script type="text/javascript">
+		var _gaq = _gaq || [];
+		_gaq.push(['_setAccount', 'UA-1828871-3']);
+		_gaq.push(['_setSiteSpeedSampleRate', 100]);
+		_gaq.push(['_trackPageview']);
+		(function() {
+			var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+			ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+			var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+		})();
 	</script>
 </body>
 </html>
