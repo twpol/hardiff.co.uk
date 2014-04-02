@@ -70,8 +70,8 @@
 		function iso8601(string) {
 			// BUG (Safari) Doesn't accept the ISO 8601 date/time format in the Date constructor.
 			//return new Date(string.substr(0, 23));
-			var m = string.match(/(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d).(\d+)/);
-			return new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6]);
+			var m = string.match(/(\d\d\d\d)-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d).(\d\d\d)/);
+			return new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6], m[7]);
 		}
 		function xmlToJSON(xml, recurse) {
 			var json = {};
